@@ -1,3 +1,6 @@
 [submodule "micro"]
 	path = micro
 	url = https://github.com/grayvalley/micro
+[submodule "bitmex_s3"]
+	path = bitmex_s3
+	url = https://github.com/grayvalley/bitmex_s3
