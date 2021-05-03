@@ -1,0 +1,3 @@
+[submodule "micro"]
+	path = micro
+	url = https://github.com/grayvalley/micro
