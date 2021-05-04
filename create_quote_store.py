@@ -4,6 +4,7 @@ from bitmex_s3.src.downloader import (
     QuoteData
 )
 
+
 def create_date_strings(start_date, end_date):
 
     def month_str(month):
@@ -40,12 +41,10 @@ def main():
     store_path = config["store-path"]
     quote_data = QuoteData(bucket_name)
 
-    #store = pd.HDFStore(f"store.{data_type}/{bucket_name}.h5")
     dates = create_date_strings(config["start-date"], config["end-date"])
     for date in dates:
         data = quote_data.get(date)
         data.to_csv(f"{store_path}/{bucket_name}-{date}")
-        #store.put(f"{data_type}_{date}", data, format='table')
         print("Downloaded: ", date)
 
 
