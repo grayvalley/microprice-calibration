@@ -37,13 +37,15 @@ def main():
 
     bucket_name = config["bucket-name"]
     data_type = config["data-type"]
+    store_path = config["store-path"]
     quote_data = QuoteData(bucket_name)
 
-    store = pd.HDFStore(f"store.{data_type}/{bucket_name}.h5")
+    #store = pd.HDFStore(f"store.{data_type}/{bucket_name}.h5")
     dates = create_date_strings(config["start-date"], config["end-date"])
     for date in dates:
         data = quote_data.get(date)
-        store.put(f"{data_type}_{date}", data, format='table')
+        data.to_csv(f"{store_path}/{bucket_name}-{date}")
+        #store.put(f"{data_type}_{date}", data, format='table')
         print("Downloaded: ", date)
 
 
