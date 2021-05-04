@@ -83,16 +83,14 @@ def main():
         config["store-name"],
         start, end)
 
-    n_imb = config["n-buckets"]
     n_spread = config["n-spread"]
     dt = config["dt"]
-    df, misc = micro.fitting.preprocess.discretize(df, n_imb, dt, n_spread)
-    df = micro.fitting.preprocess.mirror(df, misc)
-    G1, B, Q, Q2, R1, R2, K = micro.fitting.ml.estimate(df)
-    Gstar, Bstar = micro.fitting.ml.calc_price_adj(G1, B, order='stationary')
+    df, misc = micro.fitting.preprocess.discretize(df, dt, n_spread)
+    #df = micro.fitting.preprocess.mirror(df, misc)
+    model = micro.fitting.ml.estimate(df, misc)
+    Gstar, Bstar = model.calc_price_adj(order='stationary')
 
     # Save model
-    Gstar.to_hdf(f"{writepath}/{symbol}_model_store.h5", key=symbol)
     Gstar.to_csv(f"{writepath}/{symbol}.csv")
 
 
