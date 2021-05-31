@@ -1,10 +1,11 @@
 {
-  "store-name": "public-testnet.bitmex.com",
-  "symbol": "XBTUSD",
+  "store-name": "public.bitmex.com",
+  "symbol": "ETHUSD",
   "store-path": "store.quote",
   "write-path": "store.model",
-  "start-date": "2021-01-01",
-  "end-date": "2021-05-01",
-  "n-spread": 50,
-  "dt": 1
+  "start-date": "2021-04-21",
+  "end-date": "2021-04-21",
+  "n-spread": 100,
+  "tick-size": 0.05,
+  "price-decimals": 3
 }
