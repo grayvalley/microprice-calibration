@@ -117,6 +117,7 @@ def main():
         config["store-path"],
         config["store-name"],
         start, end)
+    
 #%%
     tick_size = config["tick-size"]
     n_spread = config["n-spread"]
@@ -146,7 +147,7 @@ def main():
     
     validation_data = compute_microprice_forecast(
          training_data.microprice.values,
-        training_data.mid.values, time_index, 1000)
+        training_data.mid.values, time_index, 100)
     
     validation_data = pd.DataFrame(
         validation_data,
