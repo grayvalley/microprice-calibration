@@ -5,7 +5,18 @@
   "write-path": "store.model",
   "start-date": "2021-04-21",
   "end-date": "2021-04-21",
-  "n-spread": 100,
+  "n-spread": 20,
   "tick-size": 0.05,
-  "price-decimals": 3
+  "mid-decimals": 2,
+  "buckets": [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35,
+              0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75,
+              0.8, 0.85, 0.9, 0.95, 1.0],
+  "model-params": {
+      "terminal-time": 5,
+      "max-inventory": 5,
+      "min-inventory": -5,
+      "inventory-penalty": 0.001,
+      "terminal-penalty": 0.001,
+      "finite-difference-steps": 1000
+  }
 }
