@@ -1,0 +1,7 @@
+{
+  "bucket-name": "public.bitmex.com",
+  "store-path": "store.trade",
+  "data-type": "trade",
+  "start-date": "2021-04-10",
+  "end-date": "2021-05-01"
+}

@@ -1,8 +1,6 @@
 {
   "store-name": "public.bitmex.com",
   "symbol": "ETHUSD",
-  "store-path": "store.quote",
-  "write-path": "store.model",
   "start-date": "2021-04-21",
   "end-date": "2021-04-21",
   "n-spread": 20,
