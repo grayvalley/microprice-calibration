@@ -14,6 +14,7 @@ from alpha.solver import (
     ShortTermAlpha
 )
 
+
 def prepare_dataframe(df):
     
     df["time"] = pd.to_datetime(
@@ -74,10 +75,14 @@ def load_dataframes(symbol, store_path, store_name, start, end):
 
 @nb.jit
 def compute_microprice_forecast(
-        microprice, mid_price, imb_bucket, time_index, millis_horizon):
+        microprice, spread, mid_price, imb_bucket, time_index, millis_horizon):
+    """
+    Backtest Micro-Price forecast against realized mid-price changes.
+    """
     
     assert(len(mid_price) == len(time_index))
-    reg_data = []
+    
+    result = []
     i = 0
     while i < len(time_index):
         t0 = time_index[i]
@@ -86,22 +91,24 @@ def compute_microprice_forecast(
         while j < len(time_index):
             t1 = time_index[j]
             nanos = t1 - t0
-            millis = nanos / 1000000
+            millis = nanos / 1000000 # time index is in nanoseconds
             if millis >= millis_horizon:
                 imb = imb_bucket[i]
                 mp = microprice[i]
                 mid0 = mid_price[i]
                 mid1 = mid_price[j]
-                entry = np.zeros(8)
-                entry[0] = t0
-                entry[1] = t1
-                entry[2] = mid0
-                entry[3] = mid1
-                entry[4] = mid1 - mid0
-                entry[5] = mp
-                entry[6] = mp - mid0
-                entry[7] = imb
-                reg_data.append(entry)
+                s = spread[i]
+                entry = np.zeros(9)
+                entry[0] = t0  # reference time
+                entry[1] = t1  # reference time + horizon milliseconds
+                entry[2] = mid0  # mid at time t0
+                entry[3] = mid1  # mid at time t1
+                entry[4] = mid1 - mid0  # real change in mid-price
+                entry[5] = mp  # micro-price as observed at time t0
+                entry[6] = mp - mid0  # forecasted change in mid-price
+                entry[7] = imb  # imbalance that motivates microprice
+                entry[8] = s # spread at time t0
+                result.append(entry)
                 i = j
                 found = True
                 break
@@ -111,13 +118,19 @@ def compute_microprice_forecast(
         if not found:
             i += 1
             
-    return reg_data
+    return result
 
 
 @nb.jit
 def create_uniform_imbalance_series(imbalance, time_index, millis_horizon):
+    """
+    Creates time-uniform order book imbalance series. This data is used to
+    fit Ornstein - Uhlenbeck process to the imbalance time series. These
+    parameters are used to fit the trading model.
+    """
     
     assert(len(imbalance) == len(time_index))
+    
     result = []
     i = 0
     while i < len(time_index):
@@ -128,17 +141,17 @@ def create_uniform_imbalance_series(imbalance, time_index, millis_horizon):
         while j < len(time_index):
             t1 = time_index[j]
             nanos = t1 - t0
-            millis = nanos / 1000000
+            millis = nanos / 1000000  # time index is in nanoseconds
             if millis >= millis_horizon:
                 i1 = imbalance[j]
                 entry = np.zeros(7)
-                entry[0] = t0
-                entry[1] = t1
-                entry[2] = i0
-                entry[3] = i1
-                entry[4] = 2*i0 - 1 
-                entry[5] = 2*i1 - 1
-                entry[6] = i1 - i0
+                entry[0] = t0  # reference time t0
+                entry[1] = t1  # reference time t0 + horizon milliseconds
+                entry[2] = i0  # imbalance at time t0
+                entry[3] = i1  # imbalance at time t1
+                entry[4] = 2*i0 - 1  # scaled imbalance as of time t0
+                entry[5] = 2*i1 - 1  # scaled imbalance as of time t1
+                entry[6] = i1 - i0   # change in imbalance from t0 to t1
                 result.append(entry)
                 i = j
                 found = True
@@ -164,8 +177,7 @@ def save_excel(decisions, inventory_levels, signal_levels):
 
 def calibrate_microprice(config):
     """
-    Calibrates Stoikov's Micro-Price model to BitMEX market data 
-    
+    Calibrates Stoikov's Micro-Price model to BitMEX market data.
     """
     
     # Load raw L1 data
@@ -208,9 +220,59 @@ def calibrate_microprice(config):
     # Compute micro-price
     calib_data["mp"] = calib_data["mid"] + calib_data["mp_adj"]
     
+    run_microprice_diagnostics(calib_data, config)
+    
     return calib_data, Gstar, Bstar
 
 
+def run_microprice_diagnostics(data, config):
+    
+    
+    # "Backtest" Micro-Price forecast
+    forecasts = compute_microprice_forecast(
+        data["mp"].values,
+        data["spread"].values,
+        data["mid"].values,
+        data["imb_bucket"].values, 
+        data["time"].values.astype(np.int64),
+        1000)
+    
+    forecasts = pd.DataFrame(forecasts)
+    forecasts.columns = [
+        't0', 't1', 'mid0', 'mid1', 'dmid', 
+        'mp0', 'mp_adj', 'imb_bucket', 'spread'
+        ]
+
+    # Let's compute mean historical mid-price changes and
+    # average microprice forecasts given imbalance bucket
+    buckets = sorted(data["imb_bucket"].value_counts().index.values)
+    mean_changes = []
+    mean_forecasts = []
+    for bucket in buckets:
+        mean_changes.append(
+            forecasts["dmid"].loc[
+                (forecasts["imb_bucket"] == bucket) &
+                (forecasts["spread"] == 1)].mean())
+        mean_forecasts.append(
+            forecasts["mp_adj"].loc[
+                (forecasts["imb_bucket"] == bucket) &
+                (forecasts["spread"] == 1)].mean())
+    
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.plot(buckets, mean_forecasts,
+            color='blue', marker='o', lw=2, label='Model')
+    ax.plot(buckets, mean_changes,
+            color='red', marker='o', lw=2, label='Realized')
+    plt.legend()
+    plt.title('Mid-Price Change forecast (1000 milliseconds)')
+    plt.suptitle(f'Symbol: {config["symbol"]}')
+    ax.set_ylabel('Change in Mid-Price')
+    ax.set_xticklabels(np.round(np.arange(0, 1.1, 0.1), 2))
+    ax.set_xlabel('Order Book Imbalance')
+    fig.savefig("graphs/calibrated.pdf", bbox_inches='tight')
+    fig.savefig("graphs/calibrated.png", bbox_inches='tight')
+    
+    
 def calibrate_nbbo_trading_model(mp_calib_data, trade_data, config):
     
     # Compute imbalance approximation to micro-price
@@ -349,10 +411,12 @@ def main():
     # Load configuration
     with open("calib.config.json") as f:
         config = json.load(f)
-
+        
+    # Calibrate Micro-Price model
     calib_data, Gstar, Bstar = calibrate_microprice(config)
     
-    calibrate_nbbo_trading_model(calib_data, None, config)
+    # Calibrate NBBO market making model
+    #calibrate_nbbo_trading_model(calib_data, None, config)
     
     
     # symbol     = config["symbol"]
