@@ -18,9 +18,6 @@ mid-price in the future given a Markov-Chain that drives the future evolution of
 ### Market Making Strategy
 
 The Micro-Price may be combined with stochastic optimal control to create a market making strategy that accounts for the micro-price as a short-term
-prediction of the asset price.
+prediction of the asset price. For a mathematical treatment see: https://gist.github.com/sebjai/c6ff3850dea37d28d3fa7d3aef59722b
 
 
-```math
-dS_t := \alpha_t dt + \sigma dW_t
-```
