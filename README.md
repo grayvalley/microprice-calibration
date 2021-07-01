@@ -21,6 +21,6 @@ The Micro-Price may be combined with stochastic optimal control to create a mark
 prediction of the asset price.
 
 
-$$
+```math
 dS_t := \alpha_t dt + \sigma dW_t
-$$
+```
