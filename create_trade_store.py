@@ -1,7 +1,7 @@
 import json
 import pandas as pd
 from bitmex_s3.src.downloader import (
-    QuoteData
+    TradeData
 )
 
 
@@ -33,19 +33,19 @@ def create_date_strings(start_date, end_date):
 
 def main():
 
-    with open('store.quote.config.json', 'r') as json_file:
+    with open('store.trade.config.json', 'r') as json_file:
         config = json.load(json_file)
 
     bucket_name = config["bucket-name"]
     data_type = config["data-type"]
     store_path = config["store-path"]
-    quote_data = QuoteData(bucket_name)
+    quote_data = TradeData(bucket_name)
 
     dates = create_date_strings(config["start-date"], config["end-date"])
     for date in dates:
         data = quote_data.get(date)
         data.to_csv(f"{store_path}/{bucket_name}-{date}")
-        print("Downloaded quote data for date: ", date)
+        print("Downloaded trade data for date: ", date)
 
 
 if __name__ == '__main__':

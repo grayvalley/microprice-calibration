@@ -51,7 +51,7 @@ def create_date_strings(start_date, end_date):
     return dates
 
 
-def load_dataframes(symbol, store_path, store_name, start, end):
+def load_data(symbol, store_path, store_name, start, end):
 
     dates = create_date_strings(start, end)
 
@@ -62,7 +62,7 @@ def load_dataframes(symbol, store_path, store_name, start, end):
             df = df[df["symbol"] == symbol]
             df = prepare_dataframe(df)
             frames.append(df)
-            print("Loaded: ", date)
+            print("Loaded quotes for date: ", date)
         except Exception as ex:
             print(ex)
             pass
@@ -181,9 +181,9 @@ def calibrate_microprice(config):
     """
     
     # Load raw L1 data
-    raw_l1_data = load_dataframes(
+    raw_l1_data = load_data(
         config["symbol"],
-        config["store-path"],
+        "store.quote",
         config["store-name"],
         config["start-date"], 
         config["end-date"])
@@ -220,12 +220,78 @@ def calibrate_microprice(config):
     # Compute micro-price
     calib_data["mp"] = calib_data["mid"] + calib_data["mp_adj"]
     
-    run_microprice_diagnostics(calib_data, config)
+    plot_model_vs_data(calib_data, config)
     
     return calib_data, Gstar, Bstar
 
 
-def run_microprice_diagnostics(data, config):
+def estimate_trade_arrival_rates(config):
+    """
+    Estimates trade arrival rates per 1000 millisecond period
+    """
+    
+    import scipy.stats as ss
+    
+    # Load trades
+    trades = load_data(
+        config["symbol"],
+        "store.trade",
+        config["store-name"],
+        config["start-date"], 
+        config["end-date"])
+    
+    # Aggregate sales into 1 second time buckets
+    sales = trades['size'].loc[trades['side'] == 'Sell']
+    sales_agg = sales.resample('1s').sum()
+    lamda_m = ss.expon.fit(sales_agg, floc=0)[1]
+    
+    # Aggregate purchases into 1 second time buckets
+    purchases = trades['size'].loc[trades['side'] == 'Buy']
+    purchases_agg = purchases.resample('1s').sum().mean()
+    lamda_p = ss.expon.fit(purchases_agg, floc=0)[1]
+    
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(sales)
+    plt.title('Sales during 1000 ms time buckets')
+    plt.suptitle(f'Symbol: {config["symbol"]}')
+    ax.set_ylabel('Traded Size')
+    fig.savefig(f'graphs/{config["symbol"]}_lamda_m.png',
+                bbox_inches='tight')
+    
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(sales, bins=1000, color='blue', alpha=0.5)
+    ax.axvline(x=lamda_m, color='red', lw=2)
+    ax.set_xlim([0, 3*sales.std()])
+    ax.set_xlabel('Traded size')
+    ax.set_ylabel('Observations')
+    plt.suptitle(f'Symbol: {config["symbol"]}')
+    plt.title('Trade size distribution')
+    fig.savefig(f'graphs/{config["symbol"]}_sales_hist.png',
+                bbox_inches='tight')
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(purchases)
+    plt.title('Purchases during 1000 ms time buckets')
+    plt.suptitle(f'Symbol: {config["symbol"]}')
+    ax.set_ylabel('Traded Size')
+    fig.savefig(f'graphs/{config["symbol"]}_lamda_p.png',
+                bbox_inches='tight')
+    
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(purchases, bins=1000, color='blue', alpha=0.5)
+    ax.axvline(x=lamda_m, color='red', lw=2)
+    ax.set_xlim([0, 3*sales.std()])
+    ax.set_xlabel('Traded size')
+    ax.set_ylabel('Observations')
+    plt.suptitle(f'Symbol: {config["symbol"]}')
+    plt.title('Trade size distribution')
+    fig.savefig(f'graphs/{config["symbol"]}_purchases_hist.png',
+                bbox_inches='tight')
+    
+    return lamda_m, lamda_p
+
+def plot_model_vs_data(data, config):
     
     
     # "Backtest" Micro-Price forecast
@@ -269,22 +335,22 @@ def run_microprice_diagnostics(data, config):
     ax.set_ylabel('Change in Mid-Price')
     ax.set_xticklabels(np.round(np.arange(0, 1.1, 0.1), 2))
     ax.set_xlabel('Order Book Imbalance')
-    fig.savefig("graphs/calibrated.pdf", bbox_inches='tight')
-    fig.savefig("graphs/calibrated.png", bbox_inches='tight')
+    fig.savefig(f'graphs/{config["symbol"]}_calibrated.pdf',
+                bbox_inches='tight')
+    fig.savefig(f'graphs/{config["symbol"]}_calibrated.png',
+                bbox_inches='tight')
     
     
-def calibrate_nbbo_trading_model(mp_calib_data, trade_data, config):
+def calibrate_nbbo_trading_model(mp_calib_data, config):
+    
+    # Estimate trade arrival rates
+    lamda_m, lamda_p = estimate_trade_arrival_rates(config)
     
     # Compute imbalance approximation to micro-price
     beta = estimate_imbalance_beta(mp_calib_data)
-    print(beta)
+    
     # Compute imbalance Ornstein-Uhlenbeck parameters
     zeta, eta = estimate_imbalance_ou_process(mp_calib_data, config)
-    print(zeta)
-    
-    # Compute trade arrival rates
-    lamda_m = 10
-    lamda_p = 10
     
     model_params = config["model-params"]
     
@@ -330,7 +396,8 @@ def calibrate_nbbo_trading_model(mp_calib_data, trade_data, config):
     decisions = l_m + l_p
 
     save_excel(decisions, q_grid, sta.imbalance)
-
+    
+    return decisions
 
 def estimate_imbalance_beta(mp_calib_data):
     """
@@ -392,11 +459,11 @@ def estimate_imbalance_ou_process(mp_calib_data, config):
     
     # Fit linear model: {I_{t+1} = zeta*I_{t} + e_{t}, e_{t} ~ N(0, eta)
     X = imb_series.values[:, 4]
-    y = imb_series.values[:, 5]
+    y = imb_series.values[:, 6]
     ols_est = sm.OLS(y, X).fit()
     
     # mean-reversion speed
-    zeta = -np.log(ols_est._results.params[0])
+    zeta = -ols_est._results.params[0]
     
     # residual volatility
     eta = imb_series[6].std()
@@ -411,123 +478,12 @@ def main():
     # Load configuration
     with open("calib.config.json") as f:
         config = json.load(f)
-        
+    
     # Calibrate Micro-Price model
     calib_data, Gstar, Bstar = calibrate_microprice(config)
     
     # Calibrate NBBO market making model
-    #calibrate_nbbo_trading_model(calib_data, None, config)
-    
-    
-    # symbol     = config["symbol"]
-    # writepath  = config["write-path"]
-    # store_name = config["store-name"]
-    # start      = config["start-date"]
-    # end        = config["end-date"]
-    # tick_size  = config["tick-size"]
-    # n_spread   = config["n-spread"]
-    # decimals   = config["mid-decimals"]
-    # buckets    = config["buckets"]
-    
-    # # Load data
-    # df = load_dataframes(
-    #     config["symbol"],
-    #     config["store-path"],
-    #     config["store-name"],
-    #     start, end)
-    
-    # # Create training data for micro-price
-    # training_data = micro.fitting.preprocess.create_training_data(
-    #     df, tick_size, n_spread, decimals, buckets)
-    
-    # # Fit micro-price model
-    # model = micro.fitting.ml.estimate(
-    #     training_data, n_spread, tick_size, decimals, buckets)
-    
-    # # Compute adjustments
-    # Gstar, Bstar = model.calc_price_adj()
-    
-    # # Save model
-    # Gstar.to_csv(f"{writepath}/{symbol}-{store_name}-model.csv")
-    
-    # # Save training data
-    # training_data.to_csv(
-    #     f"{writepath}/{symbol}-{store_name}-training-data.csv")
-    
-    # # Compute microprice process
-    # training_data = training_data.merge(
-    #     Gstar, how='left',
-    #     on=['spread', 'imb_bucket'])
-    
-    # training_data.index = pd.DatetimeIndex(training_data["time"])
-    # training_data['microprice'] = training_data['mid'] + training_data['Mid-Adjustment']
-    
-    # # Compare microprice forecast against real mid-price changes
-    # time_index = training_data.index.values.astype(np.int64)
-    # validation_data = compute_microprice_forecast(
-    #       training_data.microprice.values,
-    #       training_data.mid.values,
-    #       training_data.imb_bucket.values,
-    #       time_index,
-    #       1000)
-    # validation_data = pd.DataFrame(
-    #     validation_data,
-    #     columns=["t0", "t1", "mid0", "mid1", 
-    #              "dmid", "mp", "adj", "imb"])
-    
-    # pred_changes = []
-    # real_changes = []
-    # for bucket in range(0, len(buckets)-1):
-    #     pred_changes.append(validation_data['adj'].loc[
-    #             validation_data['imb']==bucket].mean())
-    #     real_changes.append(validation_data['dmid'].loc[
-    #             validation_data['imb']==bucket].mean())
-    # pred_changes = pd.DataFrame(
-    #     data=pred_changes, index=np.arange(len(buckets)-1))
-    # real_changes = pd.DataFrame(
-    #     data=real_changes, index=np.arange(len(buckets)-1))
-    
-    # fig, ax = plt.subplots(figsize=(6, 4))
-    # ax.plot(real_changes.index, real_changes.values, color='red')
-    # ax.plot(real_changes.index, pred_changes.values, color='blue')
-    # plt.show()
-    
-    # # fig, ax = plt.subplots(figsize=(6, 4))
-    # # ax.scatter(
-    # #         training_data['imb'].loc[training_data.spread==1],
-    # #         training_data['Mid-Adjustment'].loc[training_data.spread==1],
-    # #         color='red')
-    # # plt.show()
-    
-    # params = {}
-    
-    # # Estimate linear model to approximate micro-price using imbalance only
-    # X = 2*training_data['imb'].loc[training_data.spread==1] - 1
-    # y = training_data['Mid-Adjustment'].loc[training_data.spread==1]
-    # lm = sm.OLS(y, X).fit()
-    # lm.summary()
-    
-    # params.update({'beta': lm._results.params[0]})
-    
-    # # fig, ax = plt.subplots(figsize=(6, 4))
-    # # ax.scatter(X, lm.predict(X), color='blue', alpha=0.1)
-    # # ax.scatter(X, y, color='red', alpha=0.1)
-    # # plt.show()
-    
-    # # Estimate alpha-signal mean-reversion speed
-    # alpha_changes = compute_imbalance_change(
-    #     training_data.imb.values, time_index, 1000)
-    # alpha_changes = pd.DataFrame(
-    #     alpha_changes,
-    #     columns=["t0", "t1", "i0", "i1", "dimb"])
-    
-    # X_alpha = alpha_changes["i0"]
-    # y_alpha = alpha_changes["dimb"]
-    # lm_alpha = sm.OLS(y_alpha, X_alpha).fit()
-    # lm_alpha.summary()
-    
-    # params.update({'zeta': lm_alpha._results.params[0]})
-    # params.update({'eta': lm_alpha.resid.std()})
+    decisions = calibrate_nbbo_trading_model(calib_data, config)
     
     
     #%%
